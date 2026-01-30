@@ -480,7 +480,8 @@ export async function apiAdminGetAffectionTuning(cfg: ApiConfig) {
       clampMax: number;
       hourlyCapPos: number;
       hourlyCapNeg: number;
-      penaltyEnabled: boolean;
+      scoreMin?: number;
+      scoreMax?: number;
       ruleWeights: Record<string, number>;
     } | null;
   };
@@ -494,7 +495,8 @@ export async function apiAdminSetAffectionTuning(
     clampMax: number;
     hourlyCapPos: number;
     hourlyCapNeg: number;
-    penaltyEnabled: boolean;
+    scoreMin?: number;
+    scoreMax?: number;
     ruleWeights: Record<string, number>;
   },
 ) {
