@@ -45,5 +45,11 @@ pnpm-debug.log*
 # Testing
 coverage/
 
+# Database
+*.sqlite
+*.sqlite3
+*.db
+server/data/
+
 # Misc
 *.local
