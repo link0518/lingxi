@@ -1,29 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# One-click deploy for a fresh Linux server (Ubuntu/Debian).
+# One-click deploy for a Linux server (Ubuntu/Debian).
 # Usage:
-#   REPO_URL="https://github.com/you/lingxi.git" DOMAIN="your.domain" bash scripts/deploy.sh
+#   bash scripts/deploy.sh
 # Optional:
-#   APP_DIR="/opt/lingxi" API_BASE_URL="https://api.your.domain"
+#   APP_DIR="/opt/lingxi" API_BASE_URL="https://chat.faoo.de" bash scripts/deploy.sh
 
-REPO_URL="${REPO_URL:-}"
-DOMAIN="${DOMAIN:-}"
-APP_DIR="${APP_DIR:-/opt/lingxi}"
-API_BASE_URL="${API_BASE_URL:-}"
+APP_DIR="${APP_DIR:-$(pwd)}"
+API_BASE_URL="${API_BASE_URL:-https://chat.faoo.de}"
 
-if [[ -z "$REPO_URL" ]]; then
-  echo "REPO_URL is required. Example: REPO_URL=https://github.com/you/lingxi.git"
+if [[ ! -f "$APP_DIR/package.json" ]]; then
+  echo "Please run this script from the repo root, or set APP_DIR to the repo path."
   exit 1
-fi
-
-if [[ -z "$API_BASE_URL" ]]; then
-  if [[ -n "$DOMAIN" ]]; then
-    API_BASE_URL="https://${DOMAIN}"
-  else
-    echo "API_BASE_URL is required if DOMAIN is not set."
-    exit 1
-  fi
 fi
 
 echo "[1/6] Install system deps..."
@@ -43,14 +32,8 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 echo "[3/6] Clone or update repo..."
-if [[ ! -d "$APP_DIR/.git" ]]; then
-  sudo mkdir -p "$APP_DIR"
-  sudo chown -R "$USER:$USER" "$APP_DIR"
-  git clone "$REPO_URL" "$APP_DIR"
-else
-  git -C "$APP_DIR" fetch --all
-  git -C "$APP_DIR" reset --hard origin/main
-fi
+git -C "$APP_DIR" fetch --all || true
+git -C "$APP_DIR" reset --hard origin/main || true
 
 echo "[4/6] Install dependencies..."
 cd "$APP_DIR"

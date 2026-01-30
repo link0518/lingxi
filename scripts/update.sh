@@ -3,12 +3,14 @@ set -euo pipefail
 
 # One-click update script.
 # Usage:
-#   APP_DIR="/opt/lingxi" bash scripts/update.sh
+#   bash scripts/update.sh
+# Optional:
+#   APP_DIR="/path/to/repo" bash scripts/update.sh
 
-APP_DIR="${APP_DIR:-/opt/lingxi}"
+APP_DIR="${APP_DIR:-$(pwd)}"
 
-if [[ ! -d "$APP_DIR/.git" ]]; then
-  echo "Repo not found at $APP_DIR"
+if [[ ! -f "$APP_DIR/package.json" ]]; then
+  echo "Please run this script from the repo root, or set APP_DIR to the repo path."
   exit 1
 fi
 
