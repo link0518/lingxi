@@ -49,7 +49,17 @@ coverage/
 *.sqlite
 *.sqlite3
 *.db
-server/data/
+server/data/**
+!server/data/.gitkeep
+!server/data/uploads/
+server/data/uploads/**
+!server/data/uploads/.gitkeep
+!server/data/uploads/avatars/
+server/data/uploads/avatars/**
+!server/data/uploads/avatars/.gitkeep
+!server/data/uploads/character-avatars/
+server/data/uploads/character-avatars/**
+!server/data/uploads/character-avatars/.gitkeep
 
 # Misc
 *.local
