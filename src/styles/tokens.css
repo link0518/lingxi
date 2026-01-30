@@ -1,0 +1,72 @@
+:root {
+  /* Premium Pink "Visual Physics" Palette */
+  --bg: 250 250 250;
+  /* #FAFAFA - Cool White, like fresh paper */
+  --surface: 255 255 255;
+  /* #FFFFFF */
+  --surface-2: 242 242 247;
+  /* #F2F2F7 - macOS Sidebar Gray */
+  --surface-3: 255 255 255;
+  /* Elevated surface */
+  --surface-glass: 255 255 255;
+  /* Glass base */
+
+  --line: 0 0 0;
+  /* Pure black base for opacity-based divider */
+  /* Usage: rgb(var(--line) / 0.06) */
+
+  --text: 0 0 0;
+  /* #000000 - SF Pro Standard */
+  --muted: 60 60 67;
+  /* #3C3C43 - SF Pro Secondary (approx 60% opacity look) */
+
+  /* Pink Core */
+  --pink: 255 45 85;
+  /* #FF2D55 - macOS System Pink (Vibrant) */
+  /* Alternative softer pink for backgrounds */
+  --pink-soft: 255 230 235;
+  /* Soft pink wash */
+
+  --cta: 255 45 85;
+  /* Match System Pink */
+  --cta-soft: 255 241 242;
+
+  --success: 52 199 89;
+  /* #34C759 - macOS System Green */
+  --warning: 255 149 0;
+  /* #FF9500 - macOS System Orange */
+  --danger: 255 59 48;
+  /* #FF3B30 - macOS System Red */
+
+  --shadow-rgb: 0 0 0;
+
+  --gold: 255 214 10;
+  /* #FFD60A - macOS System Yellow */
+  --gold-soft: 255 251 235;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Helvetica Neue", sans-serif;
+
+  /* Spacing & Radius */
+  --radius-card: 16px;
+  /* macOS continuous curvature default */
+  --radius-control: 8px;
+  /* Standard control radius */
+  --radius-bubble: 18px;
+  /* iMessage bubble radius */
+}
+
+/* Dark Mode Overrides (Automatic if system prefs change, but we build for light primarily as requested, providing dark vars just in case) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: 30 30 30;
+    /* #1E1E1E - macOS Dark Window Background */
+    --surface: 40 40 40;
+    /* #282828 */
+    --surface-2: 50 50 50;
+    --line: 255 255 255;
+    --text: 255 255 255;
+    --muted: 235 235 245;
+    /* SF Pro Dark Secondary */
+  }
+}

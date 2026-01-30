@@ -1,0 +1,400 @@
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    @apply bg-bg text-text antialiased;
+  }
+
+  ::selection {
+    background: rgb(var(--pink-soft) / 1);
+  }
+
+  /* stitch_messages_list_screen：全局滚动条微调（接近设计稿） */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: rgb(229 231 235);
+    border-radius: 20px;
+  }
+}
+
+@layer components {
+  .ui-glow {
+    box-shadow:
+      0 10px 30px rgb(var(--shadow-rgb) / 0.06),
+      0 0 0 1px rgb(var(--line) / 1);
+  }
+
+  .ui-border-gradient {
+    position: relative;
+  }
+
+  .ui-border-gradient::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: linear-gradient(135deg,
+        rgb(var(--gold) / 0.55),
+        rgb(var(--pink) / 0.55),
+        rgb(var(--cta) / 0.55));
+    opacity: 0.70;
+    pointer-events: none;
+  }
+
+  .ui-border-gradient::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: rgb(var(--surface) / 0.90);
+    pointer-events: none;
+  }
+
+  .ui-border-gradient>* {
+    position: relative;
+    z-index: 1;
+  }
+
+  .ui-card {
+    /* Premium Card Style */
+    @apply rounded-card bg-surface/80 border border-white/50 shadow-soft backdrop-blur-xl transition-all duration-300;
+    @apply hover:shadow-softHover hover:border-white/80 hover:-translate-y-1;
+    /* Maintain compatibility with surface color */
+  }
+
+  /* 微信风：全宽列表容器（非卡片），强调分割线与密度 */
+  .wx-list {
+    @apply bg-surface;
+    border-top: 1px solid rgb(var(--line) / 1);
+    border-bottom: 1px solid rgb(var(--line) / 1);
+  }
+
+  .wx-list-item {
+    @apply flex items-center gap-3 px-4 py-3 transition;
+    border-bottom: 1px solid rgb(var(--line) / 1);
+    @apply hover:bg-surface-2/50;
+  }
+
+  .wx-list-item:last-child {
+    border-bottom: 0;
+  }
+
+  .wx-titlebar {
+    @apply sticky top-0 z-30;
+    @apply bg-surface/80 backdrop-blur-md;
+    border-bottom: 1px solid rgb(var(--line) / 0.6);
+  }
+
+  .wx-titlebar-inner {
+    @apply flex h-12 items-center justify-between px-4;
+  }
+
+  .ui-card-subtle {
+    @apply rounded-card bg-surface-2/80 border border-line;
+  }
+
+  /* Glassmorphism Utilities */
+  .glass {
+    @apply backdrop-blur-xl bg-surface/70 border border-white/20 shadow-lg;
+  }
+
+  .glass-panel {
+    @apply backdrop-blur-2xl bg-surface/60 border border-white/10 shadow-xl;
+    background-image: linear-gradient(to bottom right,
+        rgba(255, 255, 255, 0.4),
+        rgba(255, 255, 255, 0.1));
+  }
+
+  /* macOS Visual Physics System */
+  .mac-window {
+    @apply relative overflow-hidden bg-white/85 backdrop-blur-3xl shadow-mac-window transition-all duration-300;
+    /* The 0.5px border simulation */
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.05),
+      /* Outline */
+      0 0 1px rgba(0, 0, 0, 0.4),
+      /* Sharp shadow */
+      0 16px 36px -8px rgba(0, 0, 0, 0.2);
+    /* Diffuse shadow */
+  }
+
+  /* Noise Texture Overlay */
+  .mac-noise {
+    position: relative;
+  }
+
+  .mac-noise::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+    opacity: 0.015;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  }
+
+  .mac-sidebar {
+    @apply h-full bg-surface-2/60 backdrop-blur-2xl border-r border-black/5;
+  }
+
+  .mac-titlebar {
+    @apply h-10 w-full flex items-center px-4 shrink-0;
+    /* Draggable region if this were Electron, simpler here */
+  }
+
+  .traffic-lights {
+    @apply flex items-center gap-2;
+  }
+
+  .traffic-light {
+    @apply w-3 h-3 rounded-full border border-black/5 transition-opacity duration-200;
+  }
+
+  .traffic-close {
+    @apply bg-[#FF5F57];
+  }
+
+  .traffic-min {
+    @apply bg-[#FEBC2E];
+  }
+
+  .traffic-max {
+    @apply bg-[#28C840];
+  }
+
+  /* Group hover effects for traffic lights symbols */
+  .traffic-lights:hover .traffic-light::after {
+    opacity: 1;
+  }
+
+  .traffic-light::after {
+    content: "";
+    /* Icons would go here, simplified to opacity change */
+    display: block;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 6px;
+  }
+
+  .mac-glass-panel {
+    @apply bg-white/60 backdrop-blur-xl border border-white/20 shadow-mac-light rounded-xl;
+    /* Inner top highlight */
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.5),
+      0 0 0 1px rgba(0, 0, 0, 0.05),
+      0 4px 12px rgba(0, 0, 0, 0.05);
+  }
+
+  .mac-button {
+    @apply inline-flex items-center justify-center rounded-[6px] px-3 py-1 text-sm font-medium transition-all;
+    @apply bg-white shadow-mac-light;
+    box-shadow:
+      0 1px 1px 0 rgba(0, 0, 0, 0.05),
+      0 0 0 1px rgba(0, 0, 0, 0.05);
+    /* Bevel */
+  }
+
+  .mac-button:active {
+    @apply bg-[#F5F5F7] shadow-none;
+  }
+
+  .glass-panel-dark {
+    @apply backdrop-blur-2xl bg-black/40 border border-white/10 shadow-xl;
+  }
+
+  /* Animations */
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in-up {
+    animation: fade-in-up 0.5s ease-out forwards;
+  }
+
+  @keyframes pulse-slow {
+
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  .animate-pulse-slow {
+    animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .ui-icon-btn {
+    @apply h-9 w-9 rounded-control border border-line bg-surface text-muted transition;
+    @apply hover:border-pink hover:bg-pink-soft/60 hover:text-text;
+    box-shadow: 0 2px 4px rgb(var(--shadow-rgb) / 0.05);
+    /* Softer shadow */
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-pink/35;
+  }
+
+  .ui-btn {
+    @apply inline-flex items-center justify-center rounded-control px-4 transition-all duration-200;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-pink/35;
+    @apply active:scale-[0.98];
+    /* Tactile click feedback */
+  }
+
+  .ui-btn-primary {
+    @apply ui-btn h-11 text-white;
+    background: linear-gradient(135deg, rgb(var(--cta) / 1), rgb(var(--pink) / 1));
+    box-shadow:
+      0 4px 12px rgb(var(--cta) / 0.25),
+      0 0 0 1px rgb(255 255 255 / 0.1) inset;
+    /* Inner highlight */
+    @apply hover:-translate-y-0.5 hover:shadow-[0_8px_20px_rgb(var(--cta)_/_0.3)];
+    @apply active:translate-y-0 active:shadow-[0_4px_12px_rgb(var(--cta)_/_0.25)];
+  }
+
+  .ui-btn-ghost {
+    @apply ui-btn h-11 bg-transparent border border-transparent text-text;
+    @apply hover:bg-surface-2 hover:text-pink;
+  }
+
+  .ui-input {
+    @apply h-12 w-full rounded-control bg-surface-2/50 border border-transparent px-4 text-text placeholder:text-muted/60 transition-all duration-200;
+    @apply hover:bg-surface-2 hover:border-line/50;
+    @apply focus:bg-surface focus:border-pink/30 focus:outline-none focus:ring-4 focus:ring-pink/10;
+    box-shadow: inset 0 1px 2px rgb(var(--shadow-rgb) / 0.03);
+  }
+
+  .ui-composer {
+    @apply flex items-center gap-2;
+  }
+
+  .ui-composer-btn {
+    @apply h-10 w-10 rounded-full border border-line bg-surface text-muted transition;
+    @apply hover:bg-surface-2/60 hover:text-text;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-pink/35;
+    box-shadow: 0 10px 26px rgb(var(--shadow-rgb) / 0.05);
+  }
+
+  .ui-composer-input {
+    @apply min-h-10 max-h-28 flex-1 resize-none rounded-2xl border border-line bg-surface-2;
+    @apply px-4 py-2 text-[15px] leading-5 text-text placeholder:text-muted/70;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-pink/35;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.65);
+  }
+
+  .ui-composer-send {
+    @apply h-10 rounded-full px-4 text-sm font-semibold text-white disabled:opacity-60;
+    background: linear-gradient(135deg, rgb(var(--cta) / 1), rgb(var(--pink) / 1));
+    box-shadow: 0 10px 26px rgb(var(--shadow-rgb) / 0.10);
+    @apply hover:opacity-95 active:opacity-90;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-pink/35;
+  }
+
+  .ui-page {
+    @apply min-h-dvh bg-bg text-text;
+    /* 微信风：干净底色，避免大面积装饰渐变 */
+    background-image: none;
+  }
+
+  .ui-sparkle {
+    background-image:
+      radial-gradient(circle at 30% 25%, rgb(255 255 255 / 0.75), transparent 40%),
+      radial-gradient(circle at 70% 70%, rgb(var(--gold) / 0.18), transparent 55%);
+  }
+
+  .ui-panel {
+    @apply ui-card overflow-hidden;
+  }
+
+  .ui-panel-header {
+    @apply border-b border-line px-4 py-4;
+    background: rgb(var(--surface) / 0.70);
+  }
+
+  .ui-list-item {
+    @apply flex h-14 items-center gap-3 px-4 transition;
+    @apply hover:bg-pink-soft/40;
+  }
+
+  .ui-hero-card {
+    @apply ui-card relative overflow-hidden;
+  }
+
+  .ui-hero-card::before {
+    content: "";
+    position: absolute;
+    inset: -40px -60px auto auto;
+    width: 220px;
+    height: 220px;
+    background: radial-gradient(circle at 30% 30%, rgb(var(--pink-soft) / 0.85), transparent 65%);
+    pointer-events: none;
+  }
+
+  .ui-hero-card::after {
+    content: "";
+    position: absolute;
+    inset: auto -60px -50px auto;
+    width: 260px;
+    height: 260px;
+    background: radial-gradient(circle at 30% 30%, rgb(var(--cta-soft) / 0.55), transparent 68%);
+    pointer-events: none;
+  }
+
+  .ui-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--line) / 1) transparent;
+  }
+
+  .ui-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .ui-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .ui-scrollbar::-webkit-scrollbar-thumb {
+    background: rgb(var(--line) / 0.9);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  .ui-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--pink) / 0.55);
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
