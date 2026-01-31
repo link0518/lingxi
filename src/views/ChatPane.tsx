@@ -215,8 +215,8 @@ function mergeServerMessages(prev: UiMessage[], serverMessages: Array<{ id: stri
   return merged.slice(-MESSAGE_CACHE_LIMIT);
 }
 
-export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
-  const { sessionId, embedded } = props;
+export function ChatPane(props: { sessionId: string; embedded?: boolean; characterId?: string; characterName?: string }) {
+  const { sessionId, embedded, characterId: propCharacterId, characterName: propCharacterName } = props;
   const navigate = useNavigate();
   const cfg = useMemo(() => loadApiConfig(), []);
   const cachedMessages = useMemo(() => loadMessageCache(cfg?.userId ?? null, sessionId), [cfg?.userId, sessionId]);
@@ -225,8 +225,8 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
 
   const [sessions, setSessions] = useState<Array<{ id: string; characterId: string; characterName: string }>>([]);
   const active = useMemo(() => sessions.find((s) => s.id === sessionId) ?? null, [sessions, sessionId]);
-  const characterId = active?.characterId ?? "";
-  const title = active?.characterName ?? "聊天";
+  const characterId = propCharacterId ?? active?.characterId ?? "";
+  const title = propCharacterName ?? active?.characterName ?? "聊天";
 
   const [presence, setPresence] = useState<"online" | "busy" | "offline">("online");
   type ChatAffection = { stage: string; score: number; petName: string | null; updatedAt: string | null };
@@ -245,6 +245,14 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [affectionOpen, setAffectionOpen] = useState(false);
+  const sessionIdRef = useRef(sessionId);
+  const characterIdRef = useRef(characterId);
+
+  function isCurrentSession(targetSessionId: string, targetCharacterId?: string) {
+    if (sessionIdRef.current !== targetSessionId) return false;
+    if (targetCharacterId !== undefined && characterIdRef.current !== targetCharacterId) return false;
+    return true;
+  }
 
   function scrollToBottom(behavior: ScrollBehavior = "auto") {
     const el = scrollRef.current;
@@ -260,7 +268,19 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
     setMessagesSyncAt(cached?.lastSyncAt ?? null);
     setError(null);
     setMessagesRefreshing(false);
+    setBusy(false);
+    setDraft("");
+    setPanel(null);
+    setIsAtBottom(true);
   }, [cfg?.userId, sessionId]);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  useEffect(() => {
+    characterIdRef.current = characterId;
+  }, [characterId]);
 
   useEffect(() => {
     setPresence(busy ? "busy" : "online");
@@ -302,29 +322,40 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
 
   useEffect(() => {
     if (!cfg || !characterId) return;
+    let cancelled = false;
+    const targetCharacterId = characterId;
     (async () => {
       try {
         const ch = await apiGetCharacter(cfg, characterId);
+        if (cancelled || !isCurrentSession(sessionIdRef.current, targetCharacterId)) return;
         const url = ch.avatarUrl ? assetUrl(cfg.baseUrl, ch.avatarUrl) : "";
         setCharacterAvatarUrl(url);
       } catch {
         // ignore
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [cfg, characterId]);
 
   useEffect(() => {
     if (!cfg || !sessionId) return;
+    let cancelled = false;
+    const targetSessionId = sessionId;
     (async () => {
+      if (!isCurrentSession(targetSessionId)) return;
       setError(null);
       setMessagesRefreshing(true);
       try {
         const meta = await apiSyncMeta(cfg);
+        if (cancelled || !isCurrentSession(targetSessionId)) return;
         const remoteUpdatedAt = meta.messagesUpdatedAtBySession?.[sessionId] ?? null;
         if (!messagesSyncAt || (remoteUpdatedAt && remoteUpdatedAt > messagesSyncAt)) {
           const data = messagesSyncAt
             ? await apiGetMessagesSince(cfg, sessionId, messagesSyncAt)
             : await apiGetMessages(cfg, sessionId);
+          if (cancelled || !isCurrentSession(targetSessionId)) return;
           if (data.messages?.length) {
             setMessages((prev) => mergeServerMessages(prev, data.messages));
           }
@@ -332,17 +363,24 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
           setMessagesSyncAt(nextSync);
         } else if (messages.length === 0) {
           const data = await apiGetMessages(cfg, sessionId);
+          if (cancelled || !isCurrentSession(targetSessionId)) return;
           setMessages((prev) => mergeServerMessages(prev, data.messages));
           const nextSync = remoteUpdatedAt ?? new Date().toISOString();
           setMessagesSyncAt(nextSync);
         }
       } catch (e: unknown) {
+        if (cancelled || !isCurrentSession(targetSessionId)) return;
         const err = e as { message?: unknown };
         setError(String(err?.message ?? e));
       } finally {
-        setMessagesRefreshing(false);
+        if (!cancelled && isCurrentSession(targetSessionId)) {
+          setMessagesRefreshing(false);
+        }
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [cfg, sessionId, messagesSyncAt]);
 
   useEffect(() => {
@@ -358,9 +396,13 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
 
   useEffect(() => {
     if (!cfg || !characterId) return;
+    let cancelled = false;
+    const targetSessionId = sessionId;
+    const targetCharacterId = characterId;
     (async () => {
       try {
         const s = await apiGetState(cfg, { characterId, sessionId });
+        if (cancelled || !isCurrentSession(targetSessionId, targetCharacterId)) return;
         setState(s);
         if (s.affectionStages && s.affectionStages.length) {
           setAffectionStages(s.affectionStages);
@@ -369,23 +411,34 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
         // ignore
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [cfg, characterId, sessionId, busy]);
 
   useEffect(() => {
     if (!cfg || !characterId) return;
+    let cancelled = false;
+    const targetSessionId = sessionId;
+    const targetCharacterId = characterId;
     (async () => {
       try {
         const p = await apiGetCharacterPreference(cfg, characterId);
+        if (cancelled || !isCurrentSession(targetSessionId, targetCharacterId)) return;
         setNickname(p.nickname || "");
       } catch {
         // ignore
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [cfg, characterId, sessionId]);
 
   async function refreshState() {
     if (!cfg || !characterId) return;
     const s = await apiGetState(cfg, { characterId, sessionId });
+    if (!isCurrentSession(sessionId, characterId)) return;
     setState(s);
     if (s.affectionStages && s.affectionStages.length) {
       setAffectionStages(s.affectionStages);
@@ -414,10 +467,12 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
     const text = (overrideText ?? draft).trim();
     if (!text) return;
     if (!characterId) {
-      setError("缺少 characterId（请返回消息列表重新进入）");
+      setError("会话信息加载中，请稍等片刻再发送");
       return;
     }
 
+    const targetSessionId = sessionId;
+    const targetCharacterId = characterId;
     setBusy(true);
     setError(null);
     if (!overrideText) setDraft("");
@@ -427,11 +482,14 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
     const userMsgId = `u_${Date.now()}`;
     const userMsg: UiMessage = { id: userMsgId, role: "user", content: text, createdAt: reqAt, kind: "text" };
     const typingId = `t_${Date.now()}`;
-    setMessages((prev) => [
-      ...prev,
-      userMsg,
-      { id: typingId, role: "assistant", content: "", createdAt: "", kind: "typing", pending: true, requestText: text, requestAt: reqAt },
-    ]);
+    setMessages((prev) => {
+      if (!isCurrentSession(targetSessionId, targetCharacterId)) return prev;
+      return [
+        ...prev,
+        userMsg,
+        { id: typingId, role: "assistant", content: "", createdAt: "", kind: "typing", pending: true, requestText: text, requestAt: reqAt },
+      ];
+    });
     setIsAtBottom(true);
     scrollToBottom("smooth");
 
@@ -444,6 +502,7 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
         message: text,
         onToken: (t) => {
           setMessages((prev) => {
+            if (!isCurrentSession(targetSessionId, targetCharacterId)) return prev;
             const idx = prev.findIndex((m) => m.id === typingId);
             if (idx === -1) return prev;
             const cur = prev[idx];
@@ -471,6 +530,7 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
           const hasAssistantMsg = data.messages.some((m) => m.role === "assistant");
 
           setMessages((prev) => {
+            if (!isCurrentSession(targetSessionId, targetCharacterId)) return prev;
             // 只有当服务端返回了对应类型的消息时，才删除临时消息
             const filtered = prev.filter((m) => {
               if (m.id === userMsgId && hasUserMsg) return false;
@@ -485,27 +545,33 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean }) {
       } catch {
         // 请求失败时保留所有临时消息
       }
-      await refreshState();
+      if (isCurrentSession(targetSessionId, targetCharacterId)) {
+        await refreshState();
+      }
     } catch (e: unknown) {
       const err = e as { message?: unknown };
       const msg = String(err?.message ?? e);
-      setError(msg.includes("session_busy") || msg.includes("HTTP 409") ? "对方还在回复上一条，等一下再发～" : msg);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === typingId
-            ? {
-              ...m,
-              kind: "text",
-              pending: false,
-              error: true,
-              // 如果已经拿到部分 token，不要覆盖成“发送失败”；保留已收到的内容并标记为可能不完整
-              content: m.content ? `${m.content} \n\n（流式连接中断，内容可能不完整）` : "发送失败，请稍后重试。",
-            }
-            : m,
-        ),
-      );
+      if (isCurrentSession(targetSessionId, targetCharacterId)) {
+        setError(msg.includes("session_busy") || msg.includes("HTTP 409") ? "对方还在回复上一条，等一下再发～" : msg);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === typingId
+              ? {
+                ...m,
+                kind: "text",
+                pending: false,
+                error: true,
+                // 如果已经拿到部分 token，不要覆盖成“发送失败”；保留已收到的内容并标记为可能不完整
+                content: m.content ? `${m.content} \n\n（流式连接中断，内容可能不完整）` : "发送失败，请稍后重试。",
+              }
+              : m,
+          ),
+        );
+      }
     } finally {
-      setBusy(false);
+      if (isCurrentSession(targetSessionId, targetCharacterId)) {
+        setBusy(false);
+      }
     }
   }
 

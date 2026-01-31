@@ -358,7 +358,17 @@ export function MessagesPage() {
     </>
   );
 
-  const desktopRight = activeSessionId ? <ChatPane sessionId={activeSessionId} embedded /> : <div className="flex-1 min-h-0" />;
+  const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) ?? null : null;
+  const desktopRight = activeSessionId ? (
+    <ChatPane
+      sessionId={activeSessionId}
+      embedded
+      characterId={activeSession?.characterId}
+      characterName={activeSession?.characterName}
+    />
+  ) : (
+    <div className="flex-1 min-h-0" />
+  );
 
   return (
     <>
