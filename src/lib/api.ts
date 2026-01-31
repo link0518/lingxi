@@ -593,7 +593,29 @@ export async function apiStreamChat(params: {
     throw new Error("LLM 配置缺失：请在设置中填写 Base URL / API Key / Model");
   }
 
+  function buildCharacterPrompt(card?: CharacterCardV1 | null) {
+    if (!card) return "";
+    const lines: string[] = [];
+    const name = String(card.name ?? "").trim();
+    const relationship = String(card.relationship ?? "").trim();
+    const background = String(card.background ?? "").trim();
+    const traits = Array.isArray(card.traits) ? card.traits : [];
+    const speechHabits = Array.isArray(card.speechHabits) ? card.speechHabits : [];
+    const boundaries = Array.isArray(card.boundaries) ? card.boundaries : [];
+    const catchphrases = Array.isArray(card.catchphrases) ? card.catchphrases : [];
+    if (name) lines.push(`角色名：${name}`);
+    if (relationship) lines.push(`角色关系/身份：${relationship}`);
+    if (background) lines.push(`背景设定：${background}`);
+    if (traits.length) lines.push(`性格特质：${traits.join("，")}`);
+    if (speechHabits.length) lines.push(`说话习惯：${speechHabits.join("；")}`);
+    if (boundaries.length) lines.push(`边界约束：${boundaries.join("；")}`);
+    if (catchphrases.length) lines.push(`口头禅：${catchphrases.join("；")}`);
+    return lines.length ? `角色设定：\n${lines.join("\n")}` : "";
+  }
+
   const systemBricks = await apiGetSettings(cfg).then((r) => r.promptBricks).catch(() => null);
+  const character = await apiGetCharacter(cfg, characterId).catch(() => null);
+  const characterPrompt = buildCharacterPrompt(character?.card ?? null);
   const state = await apiGetState(cfg, { characterId, sessionId }).catch(() => null);
   const stageKey = state?.affection?.stage ?? "";
   const stagePrompt = state?.affectionStages?.find((s) => s.key === stageKey)?.prompt ?? "";
@@ -608,6 +630,7 @@ export async function apiStreamChat(params: {
     .filter((t) => t && t.trim())
     .join("\n")
     .trim(),
+    characterPrompt?.trim() || "",
     stagePrompt?.trim() || "",
     memoryText?.trim() || "",
   ]
