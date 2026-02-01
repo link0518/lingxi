@@ -297,8 +297,26 @@ export async function apiCreateUser(cfg: Omit<ApiConfig, "userId">) {
 }
 
 export async function apiGetMe(cfg: ApiConfig) {
+  const cacheKey = `lx:me:v1:${cfg.baseUrl}:${cfg.userId}`;
+  try {
+    const cachedRaw = localStorage.getItem(cacheKey);
+    if (cachedRaw) {
+      const cached = JSON.parse(cachedRaw) as { at: number; data: { userId: string; displayName: string; avatarUrl: string; personaText: string } };
+      if (cached?.data && Number.isFinite(cached?.at) && Date.now() - cached.at < 10 * 60 * 1000) {
+        return cached.data;
+      }
+    }
+  } catch {
+    // ignore cache errors
+  }
   const res = await apiFetch(cfg, `/api/users/me?userId=${encodeURIComponent(cfg.userId)}`);
-  return (await res.json()) as { userId: string; displayName: string; avatarUrl: string; personaText: string };
+  const data = (await res.json()) as { userId: string; displayName: string; avatarUrl: string; personaText: string };
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), data }));
+  } catch {
+    // ignore cache errors
+  }
+  return data;
 }
 
 export async function apiUpdateMe(
@@ -309,6 +327,12 @@ export async function apiUpdateMe(
     method: "PUT",
     body: JSON.stringify({ userId: cfg.userId, ...payload }),
   });
+  try {
+    const cacheKey = `lx:me:v1:${cfg.baseUrl}:${cfg.userId}`;
+    localStorage.removeItem(cacheKey);
+  } catch {
+    // ignore cache errors
+  }
 }
 
 export async function apiSeedCharacters(cfg: ApiConfig) {
@@ -345,8 +369,33 @@ export type CharacterCardV1 = {
 };
 
 export async function apiGetCharacter(cfg: ApiConfig, id: string) {
+  const cacheKey = `lx:character:v1:${cfg.baseUrl}:${cfg.userId}:${id}`;
+  try {
+    const cachedRaw = localStorage.getItem(cacheKey);
+    if (cachedRaw) {
+      const cached = JSON.parse(cachedRaw) as {
+        at: number;
+        data: {
+          id: string;
+          name: string;
+          gender?: "unknown" | "male" | "female" | "other";
+          avatarUrl?: string;
+          persona_background: string;
+          persona_traits: string;
+          persona_speech_habits: string;
+          card: CharacterCardV1;
+          error?: string;
+        };
+      };
+      if (cached?.data && Number.isFinite(cached?.at) && Date.now() - cached.at < 10 * 60 * 1000) {
+        return cached.data;
+      }
+    }
+  } catch {
+    // ignore cache errors
+  }
   const res = await apiFetch(cfg, `/api/characters/${encodeURIComponent(id)}`);
-  return (await res.json()) as {
+  const data = (await res.json()) as {
     id: string;
     name: string;
     gender?: "unknown" | "male" | "female" | "other";
@@ -357,6 +406,12 @@ export async function apiGetCharacter(cfg: ApiConfig, id: string) {
     card: CharacterCardV1;
     error?: string;
   };
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), data }));
+  } catch {
+    // ignore cache errors
+  }
+  return data;
 }
 
 export async function apiUpdateCharacterMeta(
@@ -368,6 +423,12 @@ export async function apiUpdateCharacterMeta(
     method: "PUT",
     body: JSON.stringify(payload),
   });
+  try {
+    const cacheKey = `lx:character:v1:${cfg.baseUrl}:${cfg.userId}:${id}`;
+    localStorage.removeItem(cacheKey);
+  } catch {
+    // ignore cache errors
+  }
 }
 
 export async function apiDeleteCharacter(cfg: ApiConfig, id: string) {
