@@ -629,7 +629,16 @@ export async function apiMessagesAppend(params: {
         : undefined,
     }),
   });
-  return (await res.json()) as { ok: boolean; id?: string; createdAt?: string; error?: string };
+  return (await res.json()) as {
+    ok: boolean;
+    id?: string;
+    createdAt?: string;
+    error?: string;
+    state?: {
+      affection: { stage: string; score: number; petName: string | null; updatedAt: string | null; penaltyUntil: string | null } | null;
+      affectionStages?: Array<{ key: string; label: string; minScore: number; nsfw: "none" | "light" | "normal" | "full" }>;
+    };
+  };
 }
 
 export async function apiStreamChat(params: {
@@ -773,13 +782,14 @@ export async function apiStreamChat(params: {
   }
   if (!gotAnyToken) throw new Error("stream_incomplete");
 
-  await apiMessagesAppend({
+  const appendRes = await apiMessagesAppend({
     cfg,
     sessionId,
     characterId,
     role: "assistant",
     content: finalText,
   });
+  return appendRes;
 }
 
 export async function apiUploadAvatar(cfg: ApiConfig, file: File) {

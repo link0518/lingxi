@@ -993,6 +993,38 @@ app.post("/api/messages/append", authMiddleware, async (req, res) => {
     } catch {
       // ignore affection errors
     }
+
+    // 方案2：在 assistant 写入成功后，直接返回最新状态摘要，减少前端等待下一轮 refreshState 的延迟感。
+    // 注意：只返回与 UI 相关的轻量字段，不返回 prompt/密钥等敏感信息。
+    if (role === "assistant") {
+      try {
+        ensureAffectionState(db, userId, characterId);
+        const affection = db.prepare("SELECT score, stage, pet_name, updated_at FROM affection_state WHERE user_id = ? AND character_id = ?")
+          .get(userId, characterId);
+        const stages = db.prepare("SELECT key, label, min_score, nsfw FROM affection_stages ORDER BY min_score ASC").all();
+        res.json({
+          ok: true,
+          id,
+          createdAt,
+          state: {
+            affection: affection
+              ? {
+                  score: affection.score,
+                  stage: affection.stage,
+                  petName: affection.pet_name,
+                  updatedAt: affection.updated_at,
+                  penaltyUntil: null,
+                }
+              : null,
+            affectionStages: stages.map((s) => ({ key: s.key, label: s.label, minScore: s.min_score, nsfw: s.nsfw })),
+          },
+        });
+        return;
+      } catch {
+        // ignore state payload errors
+      }
+    }
+
     res.json({ ok: true, id, createdAt });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message ?? e) });

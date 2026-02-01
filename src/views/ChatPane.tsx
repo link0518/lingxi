@@ -495,7 +495,7 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean; charact
 
     try {
       await new Promise((r) => setTimeout(r, 220));
-      await apiStreamChat({
+      const append = await apiStreamChat({
         cfg,
         sessionId,
         characterId,
@@ -546,7 +546,15 @@ export function ChatPane(props: { sessionId: string; embedded?: boolean; charact
         // 请求失败时保留所有临时消息
       }
       if (isCurrentSession(targetSessionId, targetCharacterId)) {
-        await refreshState();
+        // 优先使用 append 返回的状态摘要；拿不到再降级刷新
+        // 这里不做强依赖，避免接口不一致导致发送失败
+        if (append?.state) {
+          const nextState = append.state;
+          setState((prev) => ({ ...(prev ?? { affection: null, memories: [] }), ...nextState }));
+          if (nextState.affectionStages?.length) setAffectionStages(nextState.affectionStages);
+        } else {
+          await refreshState();
+        }
       }
     } catch (e: unknown) {
       const err = e as { message?: unknown };
