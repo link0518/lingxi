@@ -5,10 +5,11 @@ import path from "node:path";
 import fs from "node:fs";
 import multer from "multer";
 import { randomUUID, createHash } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { createDb, ensureAffectionState, ensureDefaultPreset, ensureUserMeta, ensureUserPromptBricks, getAffectionTuning, getSyncMeta, listAffectionStages, logAffectionDelta, updateAffectionState, updateSyncMeta } from "./db.js";
 import { authMiddleware, adminOnly, signToken } from "./auth.js";
 import { defaultPromptBricks } from "./defaults.js";
-import { callOpenAICompatible } from "./llm.js";
+import { buildMessages, callOpenAICompatible, pickModel } from "./llm.js";
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -28,6 +29,54 @@ const upload = multer({ dest: UPLOAD_DIR, limits: { fileSize: 2 * 1024 * 1024 } 
 
 function now() {
   return new Date().toISOString();
+}
+
+function migrateLlmSettingsIfNeeded() {
+  try {
+    const cols = db.prepare("PRAGMA table_info(llm_settings)").all();
+    const hasEnc = cols.some((c) => c?.name === "llm_api_key_enc");
+    const hasPlain = cols.some((c) => c?.name === "llm_api_key");
+    if (!hasEnc || !hasPlain) return;
+    const keyOk = Boolean(getLlmSettingsKeyBytes());
+    if (!keyOk) return;
+    const rows = db.prepare("SELECT user_id, llm_api_key FROM llm_settings WHERE (llm_api_key_enc IS NULL OR llm_api_key_enc = '') AND llm_api_key IS NOT NULL AND llm_api_key != ''").all();
+    if (!rows?.length) return;
+    const upd = db.prepare("UPDATE llm_settings SET llm_api_key_enc = ?, updated_at = ? WHERE user_id = ?");
+    for (const r of rows) {
+      const enc = encryptSecret(String(r.llm_api_key ?? ""));
+      if (!enc) continue;
+      upd.run(enc, now(), r.user_id);
+    }
+  } catch {
+    // ignore migration errors
+  }
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function readEnvBool(name, fallback = false) {
+  const raw = String(process.env[name] ?? "").trim().toLowerCase();
+  if (!raw) return fallback;
+  if (raw === "1" || raw === "true" || raw === "yes" || raw === "on") return true;
+  if (raw === "0" || raw === "false" || raw === "no" || raw === "off") return false;
+  return fallback;
+}
+
+function readEnvInt(name, fallback) {
+  const raw = String(process.env[name] ?? "").trim();
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.trunc(n) : fallback;
+}
+
+function toMsHours(h) {
+  return Math.max(0, Number(h) * 60 * 60 * 1000);
+}
+
+function parseIsoMs(iso) {
+  const t = new Date(String(iso ?? "")).getTime();
+  return Number.isFinite(t) ? t : NaN;
 }
 
 function hashPassword(raw) {
@@ -122,6 +171,307 @@ function ensureInviteCode(code) {
   if (row.used_at || row.used_by_account_id) throw new Error("invite_code_invalid");
   return row;
 }
+
+function parseLlmConfigFromRequest(cfg) {
+  if (!cfg || typeof cfg !== "object") return null;
+  const baseUrl = String(cfg.llmBaseUrl ?? "").trim();
+  const apiKey = String(cfg.llmApiKey ?? "").trim();
+  const llmModelChat = String(cfg.llmModelChat ?? "").trim();
+  const llmModelLight = String(cfg.llmModelLight ?? "").trim();
+  return { llmBaseUrl: baseUrl, llmApiKey: apiKey, llmModelChat, llmModelLight };
+}
+
+function getLlmSettingsKeyBytes() {
+  const raw = String(process.env.LLM_SETTINGS_KEY ?? "").trim();
+  if (!raw) return null;
+  try {
+    const buf = Buffer.from(raw, "base64");
+    if (buf.length !== 32) return null;
+    return buf;
+  } catch {
+    return null;
+  }
+}
+
+function encryptSecret(plaintext) {
+  const key = getLlmSettingsKeyBytes();
+  if (!key) return null;
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const enc = Buffer.concat([cipher.update(String(plaintext), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString("base64")}.${tag.toString("base64")}.${enc.toString("base64")}`;
+}
+
+function decryptSecret(enc) {
+  const key = getLlmSettingsKeyBytes();
+  if (!key) return null;
+  const raw = String(enc ?? "").trim();
+  const parts = raw.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const iv = Buffer.from(parts[0], "base64");
+    const tag = Buffer.from(parts[1], "base64");
+    const data = Buffer.from(parts[2], "base64");
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    const out = Buffer.concat([decipher.update(data), decipher.final()]);
+    return out.toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+function getIdleNudgeLlmConfigForUser(userId) {
+  const row = db.prepare("SELECT * FROM llm_settings WHERE user_id = ?").get(userId);
+  const baseUrl = String(row?.llm_base_url ?? "").trim();
+  const apiKey = decryptSecret(row?.llm_api_key_enc) ?? "";
+  const modelChat = String(row?.llm_model_chat ?? "").trim();
+  const modelLight = String(row?.llm_model_light ?? "").trim();
+  if (baseUrl && apiKey && (modelLight || modelChat)) {
+    return { llmBaseUrl: baseUrl, llmApiKey: apiKey, llmModelChat: modelChat, llmModelLight: modelLight };
+  }
+  return {
+    llmBaseUrl: process.env.LLM_BASE_URL || process.env.OPENAI_BASE_URL || "",
+    llmApiKey: process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "",
+    llmModelChat: process.env.LLM_MODEL_CHAT || "",
+    llmModelLight: process.env.LLM_MODEL_LIGHT || process.env.LLM_MODEL_TASK || process.env.LLM_MODEL_SMALL || "",
+  };
+}
+
+function buildCharacterPrompt(card) {
+  if (!card) return "";
+  const lines = [];
+  const name = String(card.name ?? "").trim();
+  const relationship = String(card.relationship ?? "").trim();
+  const background = String(card.background ?? "").trim();
+  const traits = Array.isArray(card.traits) ? card.traits : [];
+  const speechHabits = Array.isArray(card.speechHabits) ? card.speechHabits : [];
+  const boundaries = Array.isArray(card.boundaries) ? card.boundaries : [];
+  const catchphrases = Array.isArray(card.catchphrases) ? card.catchphrases : [];
+  if (name) lines.push(`角色名：${name}`);
+  if (relationship) lines.push(`角色关系/身份：${relationship}`);
+  if (background) lines.push(`背景设定：${background}`);
+  if (traits.length) lines.push(`性格特质：${traits.join("，")}`);
+  if (speechHabits.length) lines.push(`说话习惯：${speechHabits.join("；")}`);
+  if (boundaries.length) lines.push(`边界约束：${boundaries.join("；")}`);
+  if (catchphrases.length) lines.push(`口头禅：${catchphrases.join("；")}`);
+  return lines.length ? `角色设定：\n${lines.join("\n")}` : "";
+}
+
+function buildIdleNudgeInstruction(nudgeIndex) {
+  const baseHard = [
+    "你正在聊天软件里，以第一人称“我”说话。你就是角色卡里的角色，不允许出戏。",
+    "硬性禁止：提及 AI/模型/系统/提示词/规则/训练/程序/政策。",
+    "输出格式强制：只输出聊天气泡里的“台词文本”，不写任何括号动作/舞台指示/心理描写/环境叙述。",
+    "长度强制：1 段为主，最多 2 句；口语自然，不要长篇。",
+    "态度强制：不逼问、不控诉、不道德绑架；给对方留台阶（忙也没关系）。",
+  ];
+
+  const level = (() => {
+    if (nudgeIndex === 1) {
+      return "这是第 1 次未回复提醒（12小时）。情绪：轻轻想念 + 关心，几乎不失落，像随口问候。";
+    }
+    if (nudgeIndex === 2) {
+      return "这是第 2 次未回复提醒（24小时）。情绪：更想念，出现轻微失落/空落，但语气仍温柔克制。";
+    }
+    return "这是第 3 次未回复提醒（48小时）。情绪：想念最强，失落更明显（直白表达），但仍不责怪、不施压。";
+  })();
+
+  const extra = [
+    "只写 1 条消息，不要列清单，不要问超过 1 个问题。",
+    "不要机械复用前两次句式；要自然像真人发的。",
+  ];
+
+  return ["【主动关心消息写作指令】", ...baseHard, level, ...extra].join("\n");
+}
+
+async function generateIdleNudgeText({ llmCfg, systemContent, history, nudgeIndex }) {
+  const model = pickModel(llmCfg).light;
+  const userMessage = [
+    "用户已经长时间没有回复，你需要发出一条自然的关心消息。",
+    "只输出台词文本本身。",
+  ].join("\n");
+  const messages = buildMessages({
+    system: [systemContent, buildIdleNudgeInstruction(nudgeIndex)].filter(Boolean).join("\n\n"),
+    history,
+    userMessage,
+  });
+  const res = await callOpenAICompatible({
+    baseUrl: llmCfg.llmBaseUrl,
+    apiKey: llmCfg.llmApiKey,
+    model,
+    messages,
+    stream: false,
+  });
+  const data = await res.json();
+  const raw = String(data?.choices?.[0]?.message?.content ?? "");
+  return safeText(raw, 800).trim();
+}
+
+async function runIdleNudgeSweep() {
+  if (!readEnvBool("IDLE_NUDGE_ENABLED", false)) return;
+
+  const intervalMin = readEnvInt("IDLE_NUDGE_SCAN_INTERVAL_MINUTES", 10);
+  const historyLimit = Math.max(10, Math.min(80, readEnvInt("IDLE_NUDGE_HISTORY_LIMIT", 40)));
+  const maxSendsPerSweep = Math.max(0, readEnvInt("IDLE_NUDGE_MAX_SENDS_PER_SWEEP", 20));
+  const logEnabled = readEnvBool("IDLE_NUDGE_LOG_ENABLED", true);
+  const scheduleHours = [12, 24, 48];
+
+  let sentCount = 0;
+  const startedAtMs = Date.now();
+  const log = (msg) => {
+    if (!logEnabled) return;
+    // 轻量日志：避免打印敏感信息
+    console.log(`[idle_nudge] ${msg}`);
+  };
+
+  const users = db.prepare("SELECT * FROM users").all();
+  for (const user of users) {
+    if (!user?.id) continue;
+    if (maxSendsPerSweep > 0 && sentCount >= maxSendsPerSweep) break;
+
+    const session = db
+      .prepare("SELECT * FROM sessions WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1")
+      .get(user.id);
+    if (!session?.id) continue;
+
+    const lastAssistant = db
+      .prepare("SELECT created_at FROM messages WHERE session_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1")
+      .get(session.id);
+    const lastUser = db
+      .prepare("SELECT created_at FROM messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1")
+      .get(session.id);
+
+    const lastAssistantAt = String(lastAssistant?.created_at ?? "").trim();
+    if (!lastAssistantAt) continue;
+    const aMs = parseIsoMs(lastAssistantAt);
+    if (!Number.isFinite(aMs)) continue;
+
+    const lastUserAt = String(lastUser?.created_at ?? "").trim();
+    const uMs = lastUserAt ? parseIsoMs(lastUserAt) : NaN;
+    if (Number.isFinite(uMs) && uMs > aMs) continue;
+
+    const nowMs = Date.now();
+    const diffMs = nowMs - aMs;
+
+    let nudgeIndex = 0;
+    for (let i = 0; i < scheduleHours.length; i++) {
+      if (diffMs >= toMsHours(scheduleHours[i])) nudgeIndex = i + 1;
+    }
+    if (nudgeIndex <= 0) continue;
+
+    const exists = db
+      .prepare("SELECT * FROM idle_nudges WHERE session_id = ? AND last_assistant_at = ? AND nudge_index = ? LIMIT 1")
+      .get(session.id, lastAssistantAt, nudgeIndex);
+    if (exists?.sent_message_id) continue;
+
+    const scheduledAt = new Date(aMs + toMsHours(scheduleHours[nudgeIndex - 1])).toISOString();
+
+    let nudgeId = exists?.id;
+    if (!nudgeId) {
+      nudgeId = randomUUID();
+      try {
+        db.prepare(
+          "INSERT INTO idle_nudges (id, user_id, session_id, last_assistant_at, nudge_index, scheduled_at, sent_message_id, sent_at, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?)"
+        ).run(nudgeId, user.id, session.id, lastAssistantAt, nudgeIndex, scheduledAt, now());
+      } catch {
+        // 可能并发/重复插入，继续走查询
+        nudgeId = db
+          .prepare("SELECT id FROM idle_nudges WHERE session_id = ? AND last_assistant_at = ? AND nudge_index = ? LIMIT 1")
+          .get(session.id, lastAssistantAt, nudgeIndex)?.id;
+        if (!nudgeId) continue;
+      }
+    }
+
+    // 发送前再次校验：避免扫到之后用户刚发言
+    const lastUserAgain = db
+      .prepare("SELECT created_at FROM messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1")
+      .get(session.id);
+    const lastUserAgainAt = String(lastUserAgain?.created_at ?? "").trim();
+    const u2 = lastUserAgainAt ? parseIsoMs(lastUserAgainAt) : NaN;
+    if (Number.isFinite(u2) && u2 > aMs) continue;
+
+    // 组装 prompt：全局提示词 + 角色卡 + 用户设定 + 共同硬约束（写作指令）
+    ensureUserPromptBricks(db, user.id);
+    const bricksRow = db.prepare("SELECT bricks_json FROM prompt_bricks WHERE user_id = ?").get(user.id);
+    const promptBricks = bricksRow?.bricks_json ? JSON.parse(bricksRow.bricks_json) : defaultPromptBricks();
+    const globalText = promptBricks?.bricks
+      ?.filter((b) => b.enabled)
+      .map((b) => String(b.content ?? ""))
+      .filter((t) => t && t.trim())
+      .join("\n")
+      .trim();
+
+    const character = db.prepare("SELECT * FROM characters WHERE id = ?").get(session.character_id);
+    let card = null;
+    try {
+      card = character?.card_json ? JSON.parse(character.card_json) : null;
+    } catch {
+      card = null;
+    }
+    const characterPrompt = buildCharacterPrompt(card);
+    ensureAffectionState(db, user.id, session.character_id);
+    const affection = db.prepare("SELECT stage FROM affection_state WHERE user_id = ? AND character_id = ?").get(user.id, session.character_id);
+    const stageKey = String(affection?.stage ?? "");
+    const stagePrompt = db.prepare("SELECT prompt FROM affection_stages WHERE key = ?").get(stageKey)?.prompt ?? "";
+    const memories = db
+      .prepare("SELECT content FROM memories WHERE user_id = ? AND character_id = ? AND archived = 0 ORDER BY created_at DESC LIMIT 40")
+      .all(user.id, session.character_id);
+    const memoryText = memories?.length ? `长期记忆：\n${memories.map((m) => `- ${m.content}`).join("\n")}` : "";
+    const userPersona = String(user.persona_text ?? "").trim();
+    const userPersonaText = userPersona ? `用户设定：\n${userPersona}` : "";
+
+    const systemContent = [globalText, characterPrompt, stagePrompt, memoryText, userPersonaText].filter(Boolean).join("\n\n").trim();
+
+    const history = db
+      .prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?")
+      .all(session.id, historyLimit)
+      .reverse()
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    // llmCfg：使用“轻量任务模型”
+    const llmCfg = getIdleNudgeLlmConfigForUser(user.id);
+    if (!llmCfg.llmBaseUrl || !llmCfg.llmApiKey || !pickModel(llmCfg).light) continue;
+
+    let text = "";
+    try {
+      text = await generateIdleNudgeText({ llmCfg, systemContent, history, nudgeIndex });
+    } catch {
+      continue;
+    }
+    if (!text) continue;
+
+    const msgId = randomUUID();
+    const createdAt = now();
+    db.prepare("INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(msgId, session.id, "assistant", safeText(text, 8000), createdAt);
+    db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(createdAt, session.id);
+    updateMessagesSyncMeta(user.id, session.id);
+    updateSyncMeta(db, user.id, { sessions_updated_at: createdAt });
+    db.prepare("UPDATE idle_nudges SET sent_message_id = ?, sent_at = ? WHERE id = ?").run(msgId, createdAt, nudgeId);
+
+    sentCount += 1;
+    log(`sent nudge#${nudgeIndex} user=${user.id} session=${session.id}`);
+
+    // 限速：避免一个 sweep 内连续打爆 LLM
+    await sleep(200);
+  }
+
+  if (sentCount > 0) {
+    const costMs = Date.now() - startedAtMs;
+    log(`sweep done sent=${sentCount} costMs=${costMs} intervalMin=${intervalMin}`);
+  }
+}
+
+const IDLE_NUDGE_SCAN_INTERVAL_MINUTES = readEnvInt("IDLE_NUDGE_SCAN_INTERVAL_MINUTES", 10);
+if (IDLE_NUDGE_SCAN_INTERVAL_MINUTES > 0) {
+  setInterval(() => {
+    runIdleNudgeSweep().catch(() => null);
+  }, IDLE_NUDGE_SCAN_INTERVAL_MINUTES * 60 * 1000).unref?.();
+}
+
+migrateLlmSettingsIfNeeded();
 
 function calculateRuleDelta(text) {
   const t = String(text || "").toLowerCase();
@@ -592,6 +942,23 @@ app.post("/api/messages/append", authMiddleware, async (req, res) => {
 
     try {
       if (role === "assistant") {
+        try {
+          const parsed = parseLlmConfigFromRequest(llmConfig);
+          if (parsed?.llmBaseUrl && parsed?.llmApiKey && (parsed.llmModelLight || parsed.llmModelChat)) {
+            const encKey = encryptSecret(parsed.llmApiKey);
+            if (!encKey) throw new Error("LLM_SETTINGS_KEY_missing");
+            const row = db.prepare("SELECT user_id FROM llm_settings WHERE user_id = ?").get(userId);
+            if (row) {
+              db.prepare("UPDATE llm_settings SET llm_base_url = ?, llm_api_key_enc = ?, llm_model_chat = ?, llm_model_light = ?, updated_at = ? WHERE user_id = ?")
+                .run(parsed.llmBaseUrl, encKey, parsed.llmModelChat, parsed.llmModelLight, now(), userId);
+            } else {
+              db.prepare("INSERT INTO llm_settings (user_id, llm_base_url, llm_api_key_enc, llm_model_chat, llm_model_light, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+                .run(userId, parsed.llmBaseUrl, encKey, parsed.llmModelChat, parsed.llmModelLight, now());
+            }
+          }
+        } catch {
+          // ignore llm settings errors
+        }
         ensureAffectionState(db, userId, characterId);
         const lastUser = db.prepare("SELECT content FROM messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1")
           .get(sessionId);
@@ -879,7 +1246,28 @@ app.post("/api/prompt-presets/:id/activate", authMiddleware, (req, res) => {
 });
 
 app.put("/api/settings/llm", authMiddleware, (req, res) => {
-  res.json({ ok: true });
+  try {
+    const userId = String(req.body?.userId ?? "");
+    if (!userId || userId !== req.auth.userId) return res.status(403).json({ ok: false, error: "forbidden" });
+    const llm = req.body?.llm ?? {};
+    const baseUrl = safeText(llm?.baseUrl ?? "", 512).trim();
+    const apiKey = safeText(llm?.apiKey ?? "", 512).trim();
+    const modelChat = safeText(llm?.modelChat ?? "", 128).trim();
+    const modelLight = safeText(llm?.modelLight ?? "", 128).trim();
+    const encKey = apiKey ? encryptSecret(apiKey) : "";
+    if (apiKey && !encKey) return res.status(400).json({ ok: false, error: "LLM_SETTINGS_KEY_missing" });
+    const row = db.prepare("SELECT user_id FROM llm_settings WHERE user_id = ?").get(userId);
+    if (row) {
+      db.prepare("UPDATE llm_settings SET llm_base_url = ?, llm_api_key_enc = ?, llm_model_chat = ?, llm_model_light = ?, updated_at = ? WHERE user_id = ?")
+        .run(baseUrl, encKey, modelChat, modelLight, now(), userId);
+    } else {
+      db.prepare("INSERT INTO llm_settings (user_id, llm_base_url, llm_api_key_enc, llm_model_chat, llm_model_light, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(userId, baseUrl, encKey, modelChat, modelLight, now());
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: String(e?.message ?? e) });
+  }
 });
 
 app.post("/api/uploads/avatar", authMiddleware, upload.single("file"), (req, res) => {

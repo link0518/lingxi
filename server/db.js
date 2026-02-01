@@ -206,6 +206,31 @@ export function createDb() {
       updated_at TEXT NOT NULL,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS idle_nudges (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      last_assistant_at TEXT NOT NULL,
+      nudge_index INTEGER NOT NULL,
+      scheduled_at TEXT NOT NULL,
+      sent_message_id TEXT DEFAULT NULL,
+      sent_at TEXT DEFAULT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(session_id, last_assistant_at, nudge_index),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS llm_settings (
+      user_id TEXT PRIMARY KEY,
+      llm_base_url TEXT NOT NULL DEFAULT '',
+      llm_api_key_enc TEXT NOT NULL DEFAULT '',
+      llm_model_chat TEXT NOT NULL DEFAULT '',
+      llm_model_light TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 
   seedSystemTables(db);
